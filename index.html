@@ -6,6 +6,7 @@
 <title>Notties — Umngeni Locals</title>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <style>
   :root{
     --green-900:#173327;
@@ -164,6 +165,19 @@
   .admin-entry-date{font-size:11.5px;color:var(--ink-soft);}
   .admin-entry-row{font-size:13px;color:var(--ink-soft);margin-bottom:2px;}
   .admin-entry-row strong{color:var(--ink);font-weight:600;}
+  .admin-entry-delete{
+    margin-top:10px;
+    font-size:12.5px;
+    font-weight:600;
+    color:var(--error);
+    background:none;
+    border:1px solid #E3B7AE;
+    border-radius:7px;
+    padding:6px 12px;
+    cursor:pointer;
+  }
+  .admin-entry-delete:hover{background:#F7E9E7;}
+  .admin-entry-delete:disabled{opacity:0.5;cursor:not-allowed;}
   footer{max-width:560px;margin:0 auto 30px;padding:0 20px;font-size:12px;color:var(--ink-soft);text-align:center;}
 </style>
 </head>
@@ -302,13 +316,18 @@
   <button class="toggle-summary" id="toggleAdmin" type="button" style="margin-top:16px;">Admin: view registrations ▾</button>
   <div class="card summary-panel" id="adminPanel">
     <div id="adminGate">
-      <label for="adminPasscode">Passcode</label>
-      <input type="text" id="adminPasscode" placeholder="Enter passcode" style="margin-bottom:10px;">
-      <button type="button" class="submit" id="adminUnlockBtn">Unlock</button>
-      <div class="error-msg" id="err-adminPasscode">Incorrect passcode.</div>
+      <label for="adminEmail">Admin email</label>
+      <input type="text" id="adminEmail" placeholder="you@example.com" style="margin-bottom:10px;">
+      <label for="adminPassword">Password</label>
+      <input type="password" id="adminPassword" placeholder="Password" style="margin-bottom:10px;">
+      <button type="button" class="submit" id="adminUnlockBtn">Sign in</button>
+      <div class="error-msg" id="err-adminPasscode">Couldn't sign in — check your email and password.</div>
     </div>
     <div id="adminContent" style="display:none;">
-      <button type="button" class="toggle-summary" id="adminRefreshBtn" style="margin-bottom:14px;">Refresh list</button>
+      <div style="display:flex;gap:8px;margin-bottom:14px;">
+        <button type="button" class="toggle-summary" id="adminRefreshBtn" style="flex:1;">Refresh list</button>
+        <button type="button" class="toggle-summary" id="adminSignOutBtn" style="flex:1;">Sign out</button>
+      </div>
       <div id="adminList"></div>
     </div>
   </div>
@@ -327,11 +346,12 @@ const firebaseConfig = {
 };
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
+const auth = firebase.auth();
 const entriesCollection = db.collection('entries');
 
 async function fetchAllEntries(){
   const snapshot = await entriesCollection.get();
-  return snapshot.docs.map(doc => doc.data());
+  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 }
 
 document.getElementById('submitBtn').addEventListener('click', async () => {
@@ -462,32 +482,53 @@ document.getElementById('toggleSummary').addEventListener('click', async () => {
   if(!showing) await loadSummary();
 });
 
-const ADMIN_PASSCODE = 'notties2026';
-
 document.getElementById('toggleAdmin').addEventListener('click', async () => {
   const panel = document.getElementById('adminPanel');
   const btn = document.getElementById('toggleAdmin');
   const showing = panel.style.display === 'block';
   panel.style.display = showing ? 'none' : 'block';
   btn.textContent = showing ? 'Admin: view registrations ▾' : 'Hide admin view ▴';
-  const alreadyUnlocked = document.getElementById('adminContent').style.display === 'block';
-  if(!showing && alreadyUnlocked) await loadAdminList();
+  if(!showing && auth.currentUser) await loadAdminList();
 });
 
 document.getElementById('adminRefreshBtn').addEventListener('click', loadAdminList);
 
 document.getElementById('adminUnlockBtn').addEventListener('click', async () => {
-  const input = document.getElementById('adminPasscode');
+  const email = document.getElementById('adminEmail').value.trim();
+  const password = document.getElementById('adminPassword').value;
   const err = document.getElementById('err-adminPasscode');
-  if(input.value !== ADMIN_PASSCODE){
-    err.style.display = 'block';
-    return;
-  }
   err.style.display = 'none';
-  document.getElementById('adminGate').style.display = 'none';
-  document.getElementById('adminContent').style.display = 'block';
-  await loadAdminList();
+  try{
+    await auth.signInWithEmailAndPassword(email, password);
+    document.getElementById('adminGate').style.display = 'none';
+    document.getElementById('adminContent').style.display = 'block';
+    await loadAdminList();
+  }catch(e){
+    err.style.display = 'block';
+  }
 });
+
+document.getElementById('adminSignOutBtn').addEventListener('click', async () => {
+  await auth.signOut();
+  document.getElementById('adminContent').style.display = 'none';
+  document.getElementById('adminGate').style.display = 'block';
+  document.getElementById('adminPassword').value = '';
+});
+
+async function deleteEntry(id, btn){
+  if(!confirm('Delete this registration? This cannot be undone.')) return;
+  btn.disabled = true;
+  btn.textContent = 'Deleting…';
+  try{
+    await entriesCollection.doc(id).delete();
+    await loadAdminList();
+    await loadSummary();
+  }catch(e){
+    btn.disabled = false;
+    btn.textContent = 'Delete';
+    alert('Could not delete this entry. Please try again.');
+  }
+}
 
 async function loadAdminList(){
   const listEl = document.getElementById('adminList');
@@ -510,8 +551,12 @@ async function loadAdminList(){
         <div class="admin-entry-row"><strong>Area:</strong> ${en.area}</div>
         <div class="admin-entry-row"><strong>Skill areas:</strong> ${(en.categories || []).join(', ') || '—'}${en.education ? ' &middot; ' + en.education : ''}</div>
         <div class="admin-entry-row"><strong>Summary:</strong> ${en.skillsSummary}</div>
+        <button type="button" class="admin-entry-delete" data-id="${en.id}">Delete</button>
       </div>
     `).join('');
+    listEl.querySelectorAll('.admin-entry-delete').forEach(btn => {
+      btn.addEventListener('click', () => deleteEntry(btn.dataset.id, btn));
+    });
   }catch(e){
     listEl.innerHTML = '<div class="empty-note">Could not load registrations.</div>';
   }
