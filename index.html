@@ -370,6 +370,23 @@ firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 const auth = firebase.auth();
 const entriesCollection = db.collection('entries');
+const statsDoc = db.collection('stats').doc('summary');
+
+function applyDelta(stats, entry, sign){
+  stats.total = (stats.total || 0) + sign;
+  if(stats.total < 0) stats.total = 0;
+  if(entry.area){
+    stats.byArea = stats.byArea || {};
+    stats.byArea[entry.area] = (stats.byArea[entry.area] || 0) + sign;
+    if(stats.byArea[entry.area] <= 0) delete stats.byArea[entry.area];
+  }
+  (entry.categories || []).forEach(cat => {
+    stats.byCategory = stats.byCategory || {};
+    stats.byCategory[cat] = (stats.byCategory[cat] || 0) + sign;
+    if(stats.byCategory[cat] <= 0) delete stats.byCategory[cat];
+  });
+  return stats;
+}
 
 async function fetchAllEntries(){
   const snapshot = await entriesCollection.get();
@@ -396,7 +413,14 @@ document.getElementById('submitBtn').addEventListener('click', async () => {
   };
 
   try{
-    await entriesCollection.add(entry);
+    await db.runTransaction(async (tx) => {
+      const statsSnap = await tx.get(statsDoc);
+      const currentStats = statsSnap.exists ? statsSnap.data() : { total: 0, byArea: {}, byCategory: {} };
+      const updatedStats = applyDelta(currentStats, entry, 1);
+      const newEntryRef = entriesCollection.doc();
+      tx.set(newEntryRef, entry);
+      tx.set(statsDoc, updatedStats);
+    });
     await loadSummary();
 
     document.getElementById('notForm').reset();
@@ -454,17 +478,11 @@ function validate(){
 
 async function loadSummary(){
   try{
-    const entries = await fetchAllEntries();
-    const summary = {total: entries.length, byArea:{}, byCategory:{}};
-    entries.forEach(en => {
-      if(en.area) summary.byArea[en.area] = (summary.byArea[en.area]||0) + 1;
-      (en.categories || []).forEach(cat => {
-        summary.byCategory[cat] = (summary.byCategory[cat]||0) + 1;
-      });
-    });
-    document.getElementById('totalCount').textContent = summary.total;
-    renderBars('areaBars', summary.byArea);
-    renderSkillChart(summary.byCategory, summary.total);
+    const snap = await statsDoc.get();
+    const summary = snap.exists ? snap.data() : { total: 0, byArea: {}, byCategory: {} };
+    document.getElementById('totalCount').textContent = summary.total || 0;
+    renderBars('areaBars', summary.byArea || {});
+    renderSkillChart(summary.byCategory || {}, summary.total || 0);
   }catch(e){
     document.getElementById('totalCount').textContent = '—';
     document.getElementById('areaBars').innerHTML = '<div class="empty-note">Could not load summary.</div>';
@@ -634,12 +652,18 @@ document.getElementById('adminSignOutBtn').addEventListener('click', async () =>
   document.getElementById('adminPassword').value = '';
 });
 
-async function deleteEntry(id, btn){
+async function deleteEntry(entry, btn){
   if(!confirm('Delete this registration? This cannot be undone.')) return;
   btn.disabled = true;
   btn.textContent = 'Deleting…';
   try{
-    await entriesCollection.doc(id).delete();
+    await db.runTransaction(async (tx) => {
+      const statsSnap = await tx.get(statsDoc);
+      const currentStats = statsSnap.exists ? statsSnap.data() : { total: 0, byArea: {}, byCategory: {} };
+      const updatedStats = applyDelta(currentStats, entry, -1);
+      tx.delete(entriesCollection.doc(entry.id));
+      tx.set(statsDoc, updatedStats);
+    });
     await loadAdminList();
     await loadSummary();
   }catch(e){
@@ -687,8 +711,11 @@ async function loadAdminList(){
       return;
     }
     entries.sort((a,b) => new Date(b.submittedAt) - new Date(a.submittedAt));
-    listEl.innerHTML = entries.map(en => `
-      <div class="admin-entry">
+    listEl.innerHTML = '';
+    entries.forEach(en => {
+      const card = document.createElement('div');
+      card.className = 'admin-entry';
+      card.innerHTML = `
         <div class="admin-entry-top">
           <span class="admin-entry-name">${en.fullName}</span>
           <span class="admin-entry-date">${new Date(en.submittedAt).toLocaleString()}</span>
@@ -698,11 +725,14 @@ async function loadAdminList(){
         <div class="admin-entry-row"><strong>Area:</strong> ${en.area}</div>
         <div class="admin-entry-row"><strong>Skill areas:</strong> ${(en.categories || []).join(', ') || '—'}${en.education ? ' &middot; ' + en.education : ''}</div>
         <div class="admin-entry-row"><strong>Summary:</strong> ${en.skillsSummary}</div>
-        <button type="button" class="admin-entry-delete" data-id="${en.id}">Delete</button>
-      </div>
-    `).join('');
-    listEl.querySelectorAll('.admin-entry-delete').forEach(btn => {
-      btn.addEventListener('click', () => deleteEntry(btn.dataset.id, btn));
+      `;
+      const delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.className = 'admin-entry-delete';
+      delBtn.textContent = 'Delete';
+      delBtn.addEventListener('click', () => deleteEntry(en, delBtn));
+      card.appendChild(delBtn);
+      listEl.appendChild(card);
     });
   }catch(e){
     listEl.innerHTML = '<div class="empty-note">Could not load registrations.</div>';
