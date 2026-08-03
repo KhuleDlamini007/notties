@@ -355,7 +355,7 @@
   </div>
 </main>
 
-<footer>Notties is run by an NGO partner supporting Umngeni Locals. Your details are shared with the local municipality.<br><span style="opacity:0.6;">Version 0.6 &middot; stats/summary fix</span></footer>
+<footer>Notties is run by an NGO partner supporting Umngeni Locals. Your details are shared with the local municipality.<br><span style="opacity:0.6;">Version 0.7 &middot; show real error on summary failure</span></footer>
 
 <script>
 const firebaseConfig = {
@@ -485,7 +485,8 @@ async function loadSummary(){
     renderSkillChart(summary.byCategory || {}, summary.total || 0);
   }catch(e){
     document.getElementById('totalCount').textContent = '—';
-    document.getElementById('areaBars').innerHTML = '<div class="empty-note">Could not load summary.</div>';
+    const detail = (e && (e.code || e.message)) ? (e.code || e.message) : 'unknown error';
+    document.getElementById('areaBars').innerHTML = '<div class="empty-note">Could not load summary. (' + detail + ')</div>';
   }
 }
 
