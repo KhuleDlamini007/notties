@@ -8,7 +8,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.0/chart.umd.min.js"></script>
 <style>
   :root{
     --green-900:#173327;
@@ -355,7 +355,7 @@
   </div>
 </main>
 
-<footer>Notties is run by an NGO partner supporting Umngeni Locals. Your details are shared with the local municipality.<br><span style="opacity:0.6;">Version 0.7 &middot; show real error on summary failure</span></footer>
+<footer>Notties is run by an NGO partner supporting Umngeni Locals. Your details are shared with the local municipality.<br><span style="opacity:0.6;">Version 0.8 &middot; fixed Chart.js CDN link, isolated chart failures</span></footer>
 
 <script>
 const firebaseConfig = {
@@ -482,7 +482,13 @@ async function loadSummary(){
     const summary = snap.exists ? snap.data() : { total: 0, byArea: {}, byCategory: {} };
     document.getElementById('totalCount').textContent = summary.total || 0;
     renderBars('areaBars', summary.byArea || {});
-    renderSkillChart(summary.byCategory || {}, summary.total || 0);
+    try{
+      renderSkillChart(summary.byCategory || {}, summary.total || 0);
+    }catch(chartErr){
+      document.getElementById('categoryEmpty').style.display = 'block';
+      document.getElementById('categoryEmpty').textContent = 'Chart could not load — try refreshing the page.';
+      document.getElementById('skillChart').style.display = 'none';
+    }
   }catch(e){
     document.getElementById('totalCount').textContent = '—';
     const detail = (e && (e.code || e.message)) ? (e.code || e.message) : 'unknown error';
