@@ -7,6 +7,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root{
     --green-900:#173327;
@@ -157,7 +158,7 @@
   .bar-label{width:118px;flex-shrink:0;color:var(--ink);}
   .bar-track{flex:1;background:var(--line);border-radius:5px;height:10px;overflow:hidden;}
   .bar-fill{background:var(--green-500);height:100%;border-radius:5px;}
-  .bar-count{width:26px;text-align:right;color:var(--ink-soft);flex-shrink:0;}
+  .bar-count{width:38px;text-align:right;color:var(--ink-soft);flex-shrink:0;}
   .empty-note{font-size:13px;color:var(--ink-soft);padding:10px 0;}
   .admin-entry{border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:10px;}
   .admin-entry-top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;}
@@ -324,10 +325,11 @@
       <div class="error-msg" id="err-adminPasscode">Couldn't sign in — check your email and password.</div>
     </div>
     <div id="adminContent" style="display:none;">
-      <div style="display:flex;gap:8px;margin-bottom:14px;">
+      <div style="display:flex;gap:8px;margin-bottom:10px;">
         <button type="button" class="toggle-summary" id="adminRefreshBtn" style="flex:1;">Refresh list</button>
         <button type="button" class="toggle-summary" id="adminSignOutBtn" style="flex:1;">Sign out</button>
       </div>
+      <button type="button" class="submit" id="adminExportBtn" style="margin-bottom:14px;">Export to Excel (.xlsx)</button>
       <div id="adminList"></div>
     </div>
   </div>
@@ -442,26 +444,27 @@ async function loadSummary(){
     });
     document.getElementById('totalCount').textContent = summary.total;
     renderBars('areaBars', summary.byArea);
-    renderBars('categoryBars', summary.byCategory);
+    renderBars('categoryBars', summary.byCategory, summary.total);
   }catch(e){
     document.getElementById('totalCount').textContent = '—';
     document.getElementById('areaBars').innerHTML = '<div class="empty-note">Could not load summary.</div>';
   }
 }
 
-function renderBars(containerId, data){
+function renderBars(containerId, data, percentOfTotal){
   const container = document.getElementById(containerId);
   const entries = Object.entries(data || {}).sort((a,b) => b[1]-a[1]);
   if(entries.length === 0){
     container.innerHTML = '<div class="empty-note">No entries yet.</div>';
     return;
   }
+  const usePercent = typeof percentOfTotal === 'number' && percentOfTotal > 0;
   const max = Math.max(...entries.map(e => e[1]));
   container.innerHTML = entries.map(([label,count]) => `
     <div class="bar-row">
       <div class="bar-label">${label}</div>
       <div class="bar-track"><div class="bar-fill" style="width:${(count/max*100).toFixed(0)}%"></div></div>
-      <div class="bar-count">${count}</div>
+      <div class="bar-count">${usePercent ? Math.round((count/percentOfTotal)*100) + '%' : count}</div>
     </div>
   `).join('');
 }
@@ -492,6 +495,39 @@ document.getElementById('toggleAdmin').addEventListener('click', async () => {
 });
 
 document.getElementById('adminRefreshBtn').addEventListener('click', loadAdminList);
+
+document.getElementById('adminExportBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('adminExportBtn');
+  btn.disabled = true;
+  btn.textContent = 'Preparing export…';
+  try{
+    const entries = await fetchAllEntries();
+    entries.sort((a,b) => new Date(a.submittedAt) - new Date(b.submittedAt));
+    const rows = entries.map(en => ({
+      'Full name': en.fullName || '',
+      'ID number': en.idNumber || '',
+      'Contact number': en.contactNumber || '',
+      'Area': en.area || '',
+      'Skill areas': (en.categories || []).join(', '),
+      'Skills summary': en.skillsSummary || '',
+      'Education': en.education || '',
+      'Submitted at': en.submittedAt ? new Date(en.submittedAt).toLocaleString() : ''
+    }));
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+    worksheet['!cols'] = [
+      {wch:22},{wch:16},{wch:16},{wch:16},{wch:28},{wch:40},{wch:18},{wch:20}
+    ];
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Registrations');
+    const dateStamp = new Date().toISOString().slice(0,10);
+    XLSX.writeFile(workbook, `notties-registrations-${dateStamp}.xlsx`);
+  }catch(e){
+    alert('Could not generate the export. Please try again.');
+  }finally{
+    btn.disabled = false;
+    btn.textContent = 'Export to Excel (.xlsx)';
+  }
+});
 
 document.getElementById('adminUnlockBtn').addEventListener('click', async () => {
   const email = document.getElementById('adminEmail').value.trim();
