@@ -85,7 +85,7 @@
   }
   .hint{font-size:12.5px;color:var(--ink-soft);margin:-3px 0 8px;font-weight:400;}
   .field{margin-bottom:16px;}
-  input[type=text], input[type=tel], select, textarea{
+  input[type=text], input[type=tel], input[type=password], input[type=date], select, textarea{
     width:100%;
     font-size:16px;
     font-family:inherit;
@@ -325,11 +325,27 @@
       <div class="error-msg" id="err-adminPasscode">Couldn't sign in — check your email and password.</div>
     </div>
     <div id="adminContent" style="display:none;">
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--gold-600);margin-bottom:8px;">Filter by date</div>
+      <div style="display:flex;gap:8px;margin-bottom:10px;">
+        <div style="flex:1;">
+          <label for="filterFrom" style="font-size:12px;">From</label>
+          <input type="date" id="filterFrom">
+        </div>
+        <div style="flex:1;">
+          <label for="filterTo" style="font-size:12px;">To</label>
+          <input type="date" id="filterTo">
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:14px;">
+        <button type="button" class="toggle-summary" id="filterApplyBtn" style="flex:1;">Apply filter</button>
+        <button type="button" class="toggle-summary" id="filterClearBtn" style="flex:1;">Clear filter</button>
+      </div>
       <div style="display:flex;gap:8px;margin-bottom:10px;">
         <button type="button" class="toggle-summary" id="adminRefreshBtn" style="flex:1;">Refresh list</button>
         <button type="button" class="toggle-summary" id="adminSignOutBtn" style="flex:1;">Sign out</button>
       </div>
-      <button type="button" class="submit" id="adminExportBtn" style="margin-bottom:14px;">Export to Excel (.xlsx)</button>
+      <button type="button" class="submit" id="adminExportBtn" style="margin-bottom:8px;">Export to Excel (.xlsx)</button>
+      <div class="link-note" id="filterStatus" style="margin-bottom:10px;"></div>
       <div id="adminList"></div>
     </div>
   </div>
@@ -501,7 +517,8 @@ document.getElementById('adminExportBtn').addEventListener('click', async () => 
   btn.disabled = true;
   btn.textContent = 'Preparing export…';
   try{
-    const entries = await fetchAllEntries();
+    const allEntries = await fetchAllEntries();
+    const entries = getFilteredEntries(allEntries);
     entries.sort((a,b) => new Date(a.submittedAt) - new Date(b.submittedAt));
     const rows = entries.map(en => ({
       'Full name': en.fullName || '',
@@ -566,13 +583,41 @@ async function deleteEntry(id, btn){
   }
 }
 
+function getFilteredEntries(entries){
+  const fromVal = document.getElementById('filterFrom').value;
+  const toVal = document.getElementById('filterTo').value;
+  const statusEl = document.getElementById('filterStatus');
+  if(!fromVal && !toVal){
+    statusEl.textContent = '';
+    return entries;
+  }
+  const fromDate = fromVal ? new Date(fromVal + 'T00:00:00') : null;
+  const toDate = toVal ? new Date(toVal + 'T23:59:59') : null;
+  const filtered = entries.filter(en => {
+    const d = new Date(en.submittedAt);
+    if(fromDate && d < fromDate) return false;
+    if(toDate && d > toDate) return false;
+    return true;
+  });
+  statusEl.textContent = `Showing ${filtered.length} of ${entries.length} total (filtered${fromVal ? ' from ' + fromVal : ''}${toVal ? ' to ' + toVal : ''})`;
+  return filtered;
+}
+
+document.getElementById('filterApplyBtn').addEventListener('click', loadAdminList);
+document.getElementById('filterClearBtn').addEventListener('click', () => {
+  document.getElementById('filterFrom').value = '';
+  document.getElementById('filterTo').value = '';
+  loadAdminList();
+});
+
 async function loadAdminList(){
   const listEl = document.getElementById('adminList');
   listEl.innerHTML = '<div class="empty-note">Loading…</div>';
   try{
-    const entries = await fetchAllEntries();
+    const allEntries = await fetchAllEntries();
+    const entries = getFilteredEntries(allEntries);
     if(entries.length === 0){
-      listEl.innerHTML = '<div class="empty-note">No registrations yet.</div>';
+      listEl.innerHTML = '<div class="empty-note">No registrations in this range.</div>';
       return;
     }
     entries.sort((a,b) => new Date(b.submittedAt) - new Date(a.submittedAt));
