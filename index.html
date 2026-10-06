@@ -106,6 +106,8 @@
   .checkbox-item{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:400;padding:7px 8px;border:1px solid var(--line);border-radius:7px;cursor:pointer;background:#FEFDFB;}
   .checkbox-item:has(input:checked){border-color:var(--green-500);background:#EAF2EC;}
   .checkbox-item input{width:16px;height:16px;flex-shrink:0;accent-color:var(--green-500);}
+  .consent-item{align-items:flex-start;font-size:13.5px;line-height:1.45;padding:10px 12px;}
+  .consent-item input{margin-top:2px;}
   .optional-tag{font-weight:400;color:var(--ink-soft);font-size:12.5px;}
   .req{color:var(--error);}
   button.submit{
@@ -301,6 +303,17 @@
         </div>
       </fieldset>
 
+      <fieldset>
+        <legend>Your consent</legend>
+        <div class="field">
+          <label class="checkbox-item consent-item" for="popiConsent">
+            <input type="checkbox" id="popiConsent" required>
+            <span>I declare that I am freely and voluntarily providing my personal information, and I consent to Notties (Umngeni Locals) collecting, storing and sharing it with the local municipality for job-seeker registration, as allowed by the Protection of Personal Information Act (POPIA). <span class="req">*</span></span>
+          </label>
+          <div class="error-msg" id="err-popiConsent">Please tick the consent box to continue.</div>
+        </div>
+      </fieldset>
+
       <button type="button" class="submit" id="submitBtn">Register my details</button>
     </form>
   </div>
@@ -356,7 +369,7 @@
   </div>
 </main>
 
-<footer>Notties is run by an NGO partner supporting Umngeni Locals. Your details are shared with the local municipality.<br><span style="opacity:0.6;">Version 0.9 &middot; area list limited to Ward 3</span></footer>
+<footer>Notties is run by an NGO partner supporting Umngeni Locals. Your details are shared with the local municipality.<br><span style="opacity:0.6;">Version 0.10 &middot; POPIA consent tick box added</span></footer>
 
 <script>
 const firebaseConfig = {
@@ -410,6 +423,8 @@ document.getElementById('submitBtn').addEventListener('click', async () => {
     categories: getSelectedCategories(),
     skillsSummary: document.getElementById('skillsSummary').value.trim(),
     education: document.getElementById('education').value,
+    popiConsent: true,
+    consentAt: new Date().toISOString(),
     submittedAt: new Date().toISOString()
   };
 
@@ -468,6 +483,14 @@ function validate(){
   if(!categoriesValid){
     ok = false;
     if(!firstInvalidEl) firstInvalidEl = categoryGrid;
+  }
+
+  const consentEl = document.getElementById('popiConsent');
+  const consentValid = consentEl.checked;
+  document.getElementById('err-popiConsent').style.display = consentValid ? 'none' : 'block';
+  if(!consentValid){
+    ok = false;
+    if(!firstInvalidEl) firstInvalidEl = consentEl;
   }
 
   if(firstInvalidEl){
@@ -620,11 +643,12 @@ document.getElementById('adminExportBtn').addEventListener('click', async () => 
       'Skill areas': (en.categories || []).join(', '),
       'Skills summary': en.skillsSummary || '',
       'Education': en.education || '',
+      'POPIA consent': en.popiConsent ? 'Yes' : 'Not recorded',
       'Submitted at': en.submittedAt ? new Date(en.submittedAt).toLocaleString() : ''
     }));
     const worksheet = XLSX.utils.json_to_sheet(rows);
     worksheet['!cols'] = [
-      {wch:22},{wch:16},{wch:16},{wch:16},{wch:28},{wch:40},{wch:18},{wch:20}
+      {wch:22},{wch:16},{wch:16},{wch:16},{wch:28},{wch:40},{wch:18},{wch:14},{wch:20}
     ];
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Registrations');
