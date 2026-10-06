@@ -189,7 +189,7 @@
   <div class="band-inner">
     <p class="eyebrow">Umngeni Locals</p>
     <h1>Notties</h1>
-    <p>Register your details so your local municipality knows you're looking for work. It takes about two minutes.</p>
+    <p>For Ward 3 residents: register your details so your local municipality knows you're looking for work. It takes about two minutes.</p>
   </div>
   <svg viewBox="0 0 560 60" preserveAspectRatio="none"><path d="M0,40 Q140,10 280,35 T560,25 V60 H0 Z" fill="#F3EFE3"/></svg>
 </div>
@@ -235,16 +235,17 @@
 
         <div class="field">
           <label for="area">Area <span class="req">*</span></label>
+          <div class="hint">Registration is currently open to uMngeni Ward 3 residents only.</div>
           <select id="area" required>
             <option value="" disabled selected>Select your area</option>
-            <option>Howick</option>
-            <option>Hilton</option>
-            <option>Mpophomeni</option>
-            <option>Nottingham Road</option>
             <option>Balgowan</option>
-            <option>Rosetta</option>
-            <option>Currys Post</option>
-            <option>Other</option>
+            <option value="Currys Post">Curry's Post</option>
+            <option>Dargle</option>
+            <option>Fort Nottingham</option>
+            <option>Lidgetton</option>
+            <option>Lions River</option>
+            <option>Nottingham Road</option>
+            <option>Zenzani</option>
           </select>
           <div class="error-msg" id="err-area">Please select your area.</div>
         </div>
@@ -355,7 +356,7 @@
   </div>
 </main>
 
-<footer>Notties is run by an NGO partner supporting Umngeni Locals. Your details are shared with the local municipality.<br><span style="opacity:0.6;">Version 0.8 &middot; fixed Chart.js CDN link, isolated chart failures</span></footer>
+<footer>Notties is run by an NGO partner supporting Umngeni Locals. Your details are shared with the local municipality.<br><span style="opacity:0.6;">Version 0.9 &middot; area list limited to Ward 3</span></footer>
 
 <script>
 const firebaseConfig = {
