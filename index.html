@@ -182,6 +182,19 @@
   }
   .admin-entry-delete:hover{background:#F7E9E7;}
   .admin-entry-delete:disabled{opacity:0.5;cursor:not-allowed;}
+  .thanks-dialog{
+    border:none;
+    border-radius:16px;
+    padding:28px 24px 22px;
+    max-width:340px;
+    width:calc(100% - 40px);
+    text-align:center;
+    box-shadow:0 12px 40px rgba(23,51,39,0.25);
+  }
+  .thanks-dialog::backdrop{background:rgba(23,51,39,0.55);}
+  .thanks-icon{width:56px;height:56px;border-radius:28px;background:var(--green-500);display:flex;align-items:center;justify-content:center;margin:0 auto 14px;}
+  .thanks-dialog h2{margin:0 0 6px;font-size:22px;color:var(--green-900);}
+  .thanks-dialog p{margin:0 0 20px;font-size:15px;color:var(--ink-soft);}
   footer{max-width:560px;margin:0 auto 30px;padding:0 20px;font-size:12px;color:var(--ink-soft);text-align:center;}
 </style>
 </head>
@@ -240,14 +253,10 @@
           <div class="hint">Registration is currently open to uMngeni Ward 3 residents only.</div>
           <select id="area" required>
             <option value="" disabled selected>Select your area</option>
-            <option>Balgowan</option>
             <option value="Currys Post">Curry's Post</option>
             <option>Dargle</option>
             <option>Fort Nottingham</option>
-            <option>Lidgetton</option>
-            <option>Lions River</option>
             <option>Nottingham Road</option>
-            <option>Zenzani</option>
           </select>
           <div class="error-msg" id="err-area">Please select your area.</div>
         </div>
@@ -339,6 +348,7 @@
   <div class="card summary-panel" id="summaryPanel">
     <div class="summary-total-label">Total registered</div>
     <div class="summary-total" id="totalCount">0</div>
+    <div class="summary-total-label" id="summaryUpdated"></div>
 
     <div class="breakdown-title">By area</div>
     <div id="areaBars"><div class="empty-note">No entries yet.</div></div>
@@ -380,13 +390,26 @@
         <button type="button" class="toggle-summary" id="adminSignOutBtn" style="flex:1;">Sign out</button>
       </div>
       <button type="button" class="submit" id="adminExportBtn" style="margin-bottom:8px;">Export to Excel (.xlsx)</button>
+      <div id="duplicateBox" style="display:none;background:#FBF3E4;border:1px solid #E9D3A8;border-radius:10px;padding:12px 14px;margin-bottom:12px;">
+        <div id="duplicateText" style="font-size:13px;color:var(--ink);margin-bottom:8px;"></div>
+        <button type="button" class="toggle-summary" id="dedupeBtn" style="background:#fff;">Merge duplicates</button>
+      </div>
       <div class="link-note" id="filterStatus" style="margin-bottom:10px;"></div>
       <div id="adminList"></div>
     </div>
   </div>
 </main>
 
-<footer>Notties is run by an NGO partner supporting Umngeni Locals. This information will be shared with local companies.<br><span style="opacity:0.6;">Version 0.12 &middot; employment status question added</span></footer>
+<dialog id="thankYouDialog" class="thanks-dialog" aria-labelledby="thankYouTitle">
+  <div class="thanks-icon" aria-hidden="true">
+    <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+  </div>
+  <h2 id="thankYouTitle">Thank you!</h2>
+  <p>Your details were submitted successfully.</p>
+  <button type="button" class="submit" id="thankYouClose">OK</button>
+</dialog>
+
+<footer>Notties is run by an NGO partner supporting Umngeni Locals. This information will be shared with local companies.<br><span style="opacity:0.6;">Version 0.13 &middot; one entry per ID number, thank-you popup, area list updated</span></footer>
 
 <script>
 const firebaseConfig = {
@@ -419,6 +442,44 @@ function applyDelta(stats, entry, sign){
   return stats;
 }
 
+async function entryKeyFor(idNumber){
+  const bytes = new TextEncoder().encode(String(idNumber).trim());
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Keep only the most recent entry for each ID number.
+function latestPerPerson(entries){
+  const byId = {};
+  entries.forEach(en => {
+    const key = String(en.idNumber || en.id).trim();
+    const current = byId[key];
+    if(!current || new Date(en.submittedAt) > new Date(current.submittedAt)) byId[key] = en;
+  });
+  return Object.values(byId);
+}
+
+function computeStats(entries){
+  const stats = { total: 0, byArea: {}, byCategory: {} };
+  latestPerPerson(entries).forEach(en => applyDelta(stats, en, 1));
+  stats.updatedAt = new Date().toISOString();
+  return stats;
+}
+
+async function rebuildStats(allEntries){
+  const entries = allEntries || await fetchAllEntries();
+  await statsDoc.set(computeStats(entries));
+}
+
+function showThankYou(){
+  const dlg = document.getElementById('thankYouDialog');
+  if(dlg && typeof dlg.showModal === 'function'){
+    dlg.showModal();
+  }else{
+    alert('Thank you, your details were submitted successfully.');
+  }
+}
+
 async function fetchAllEntries(){
   const snapshot = await entriesCollection.get();
   return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -447,19 +508,13 @@ document.getElementById('submitBtn').addEventListener('click', async () => {
   };
 
   try{
-    await db.runTransaction(async (tx) => {
-      const statsSnap = await tx.get(statsDoc);
-      const currentStats = statsSnap.exists ? statsSnap.data() : { total: 0, byArea: {}, byCategory: {} };
-      const updatedStats = applyDelta(currentStats, entry, 1);
-      const newEntryRef = entriesCollection.doc();
-      tx.set(newEntryRef, entry);
-      tx.set(statsDoc, updatedStats);
-    });
-    await loadSummary();
+    // One record per person: the document key is derived from the ID number,
+    // so registering again with the same ID overwrites the earlier entry.
+    const docId = await entryKeyFor(entry.idNumber);
+    await entriesCollection.doc(docId).set(entry);
 
     document.getElementById('notForm').reset();
-    document.getElementById('successBox').style.display = 'block';
-    document.getElementById('successBox').scrollIntoView({behavior:'smooth', block:'center'});
+    showThankYou();
   }catch(err){
     showError((err && err.message) ? err.message : 'Unknown error saving your details.');
   }finally{
@@ -524,6 +579,9 @@ async function loadSummary(){
     const snap = await statsDoc.get();
     const summary = snap.exists ? snap.data() : { total: 0, byArea: {}, byCategory: {} };
     document.getElementById('totalCount').textContent = summary.total || 0;
+    document.getElementById('summaryUpdated').textContent = summary.updatedAt
+      ? 'Last updated ' + new Date(summary.updatedAt).toLocaleString()
+      : '';
     renderBars('areaBars', summary.byArea || {});
     try{
       renderSkillChart(summary.byCategory || {}, summary.total || 0);
@@ -645,6 +703,11 @@ document.getElementById('toggleAdmin').addEventListener('click', async () => {
 });
 
 document.getElementById('adminRefreshBtn').addEventListener('click', loadAdminList);
+document.getElementById('dedupeBtn').addEventListener('click', cleanUpDuplicates);
+document.getElementById('thankYouClose').addEventListener('click', () => {
+  document.getElementById('thankYouDialog').close();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+});
 
 document.getElementById('adminExportBtn').addEventListener('click', async () => {
   const btn = document.getElementById('adminExportBtn');
@@ -709,19 +772,48 @@ async function deleteEntry(entry, btn){
   btn.disabled = true;
   btn.textContent = 'Deleting…';
   try{
-    await db.runTransaction(async (tx) => {
-      const statsSnap = await tx.get(statsDoc);
-      const currentStats = statsSnap.exists ? statsSnap.data() : { total: 0, byArea: {}, byCategory: {} };
-      const updatedStats = applyDelta(currentStats, entry, -1);
-      tx.delete(entriesCollection.doc(entry.id));
-      tx.set(statsDoc, updatedStats);
-    });
+    await entriesCollection.doc(entry.id).delete();
     await loadAdminList();
     await loadSummary();
   }catch(e){
     btn.disabled = false;
     btn.textContent = 'Delete';
     alert('Could not delete this entry. Please try again.');
+  }
+}
+
+// Merge duplicate registrations: keep each person's most recent entry
+// (stored under their ID-based key) and delete the older copies.
+async function cleanUpDuplicates(){
+  if(!confirm('Merge duplicate registrations? For each ID number only the most recent entry is kept. This cannot be undone.')) return;
+  const btn = document.getElementById('dedupeBtn');
+  btn.disabled = true;
+  btn.textContent = 'Merging…';
+  try{
+    const allEntries = await fetchAllEntries();
+    const keep = latestPerPerson(allEntries);
+    const ops = [];
+    for(const en of keep){
+      if(!en.idNumber) continue;
+      const key = await entryKeyFor(en.idNumber);
+      const { id, ...data } = en;
+      if(id !== key) ops.push({ type: 'set', ref: entriesCollection.doc(key), data });
+      allEntries
+        .filter(other => String(other.idNumber).trim() === String(en.idNumber).trim() && other.id !== key)
+        .forEach(other => ops.push({ type: 'delete', ref: entriesCollection.doc(other.id) }));
+    }
+    for(let i = 0; i < ops.length; i += 400){
+      const batch = db.batch();
+      ops.slice(i, i + 400).forEach(op => op.type === 'set' ? batch.set(op.ref, op.data) : batch.delete(op.ref));
+      await batch.commit();
+    }
+    await loadAdminList();
+    await loadSummary();
+  }catch(e){
+    alert('Could not merge duplicates. Please try again.');
+  }finally{
+    btn.disabled = false;
+    btn.textContent = 'Merge duplicates';
   }
 }
 
@@ -757,6 +849,16 @@ async function loadAdminList(){
   listEl.innerHTML = '<div class="empty-note">Loading…</div>';
   try{
     const allEntries = await fetchAllEntries();
+    // Keep the public summary in step with the real data (one count per person).
+    try{ await rebuildStats(allEntries); }catch(statsErr){ /* summary refresh is best-effort */ }
+
+    const duplicateCount = allEntries.length - latestPerPerson(allEntries).length;
+    const dupBox = document.getElementById('duplicateBox');
+    dupBox.style.display = duplicateCount > 0 ? 'block' : 'none';
+    document.getElementById('duplicateText').textContent = duplicateCount > 0
+      ? `${duplicateCount} older duplicate ${duplicateCount === 1 ? 'entry was' : 'entries were'} found (same ID number registered more than once).`
+      : '';
+
     const entries = getFilteredEntries(allEntries);
     if(entries.length === 0){
       listEl.innerHTML = '<div class="empty-note">No registrations in this range.</div>';
