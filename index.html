@@ -254,6 +254,23 @@
       </fieldset>
 
       <fieldset>
+        <legend>Your work situation</legend>
+
+        <div class="field">
+          <label for="employmentStatus">Are you currently employed? <span class="req">*</span></label>
+          <div class="hint">You can register even if you have a job and are looking for a better one.</div>
+          <select id="employmentStatus" required>
+            <option value="" disabled selected>Select one</option>
+            <option>No, I'm not working</option>
+            <option>Yes, full-time</option>
+            <option>Yes, part-time or casual</option>
+            <option>Self-employed</option>
+          </select>
+          <div class="error-msg" id="err-employmentStatus">Please tell us if you're currently employed.</div>
+        </div>
+      </fieldset>
+
+      <fieldset>
         <legend>Your skills</legend>
 
         <div class="field">
@@ -369,7 +386,7 @@
   </div>
 </main>
 
-<footer>Notties is run by an NGO partner supporting Umngeni Locals. This information will be shared with local companies.<br><span style="opacity:0.6;">Version 0.11 &middot; sharing wording updated to local companies</span></footer>
+<footer>Notties is run by an NGO partner supporting Umngeni Locals. This information will be shared with local companies.<br><span style="opacity:0.6;">Version 0.12 &middot; employment status question added</span></footer>
 
 <script>
 const firebaseConfig = {
@@ -420,6 +437,7 @@ document.getElementById('submitBtn').addEventListener('click', async () => {
     idNumber: document.getElementById('idNumber').value.trim(),
     contactNumber: document.getElementById('contactNumber').value.trim(),
     area: document.getElementById('area').value,
+    employmentStatus: document.getElementById('employmentStatus').value,
     categories: getSelectedCategories(),
     skillsSummary: document.getElementById('skillsSummary').value.trim(),
     education: document.getElementById('education').value,
@@ -462,6 +480,7 @@ function validate(){
     ['idNumber', v => /^\d{13}$/.test(v.trim())],
     ['contactNumber', v => v.trim().length >= 7],
     ['area', v => v.trim().length > 0],
+    ['employmentStatus', v => v.trim().length > 0],
     ['skillsSummary', v => v.trim().length > 3],
   ];
   checks.forEach(([id, fn]) => {
@@ -640,6 +659,7 @@ document.getElementById('adminExportBtn').addEventListener('click', async () => 
       'ID number': en.idNumber || '',
       'Contact number': en.contactNumber || '',
       'Area': en.area || '',
+      'Currently employed': en.employmentStatus || 'Not recorded',
       'Skill areas': (en.categories || []).join(', '),
       'Skills summary': en.skillsSummary || '',
       'Education': en.education || '',
@@ -648,7 +668,7 @@ document.getElementById('adminExportBtn').addEventListener('click', async () => 
     }));
     const worksheet = XLSX.utils.json_to_sheet(rows);
     worksheet['!cols'] = [
-      {wch:22},{wch:16},{wch:16},{wch:16},{wch:28},{wch:40},{wch:18},{wch:14},{wch:20}
+      {wch:22},{wch:16},{wch:16},{wch:16},{wch:24},{wch:28},{wch:40},{wch:18},{wch:14},{wch:20}
     ];
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Registrations');
@@ -744,6 +764,16 @@ async function loadAdminList(){
     }
     entries.sort((a,b) => new Date(b.submittedAt) - new Date(a.submittedAt));
     listEl.innerHTML = '';
+    const empCounts = {};
+    entries.forEach(en => {
+      const key = en.employmentStatus || 'Not recorded';
+      empCounts[key] = (empCounts[key] || 0) + 1;
+    });
+    const empBox = document.createElement('div');
+    empBox.className = 'admin-entry';
+    empBox.innerHTML = '<div class="breakdown-title" style="margin-top:0;">By employment status</div><div id="empBars"></div>';
+    listEl.appendChild(empBox);
+    renderBars('empBars', empCounts);
     entries.forEach(en => {
       const card = document.createElement('div');
       card.className = 'admin-entry';
@@ -755,6 +785,7 @@ async function loadAdminList(){
         <div class="admin-entry-row"><strong>ID:</strong> ${en.idNumber}</div>
         <div class="admin-entry-row"><strong>Contact:</strong> ${en.contactNumber}</div>
         <div class="admin-entry-row"><strong>Area:</strong> ${en.area}</div>
+        <div class="admin-entry-row"><strong>Currently employed:</strong> ${en.employmentStatus || 'Not recorded'}</div>
         <div class="admin-entry-row"><strong>Skill areas:</strong> ${(en.categories || []).join(', ') || '—'}${en.education ? ' &middot; ' + en.education : ''}</div>
         <div class="admin-entry-row"><strong>Summary:</strong> ${en.skillsSummary}</div>
       `;
